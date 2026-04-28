@@ -19,14 +19,14 @@ public class AppointmentsController(IAppointmentService appointmentService) : Co
 
     }
 
-    [HttpGet("{id}")]
-    public async Task<IActionResult> GetAsync(int id, CancellationToken cancellationToken)
+    [HttpGet("{idAppointment:int}")]
+    public async Task<IActionResult> GetByIdAsync([FromRoute]int idAppointment, CancellationToken cancellationToken)
     {
-        var appointment = await appointmentService.GetByIdAsync(id, cancellationToken);
+        var appointment = await appointmentService.GetByIdAsync(idAppointment, cancellationToken);
 
         if (appointment is null)
         {
-            return NotFound($"Appointment with id {id} not found");
+            return NotFound($"Appointment with id {idAppointment} not found");
         }
         
         return Ok(appointment);
@@ -56,15 +56,28 @@ public class AppointmentsController(IAppointmentService appointmentService) : Co
         }
     }
     
-    [HttpDelete("{id}")]
-    public async Task<IActionResult> DeleteAsync(int id, CancellationToken cancellationToken)
+    [HttpDelete("{idAppointment:int}")]
+    public async Task<IActionResult> DeleteAsync([FromRoute] int idAppointment, CancellationToken cancellationToken)
     {
         try
         {
-            await appointmentService.DeleteAsync(id, cancellationToken);
+            await appointmentService.DeleteAsync(idAppointment, cancellationToken);
             return NoContent();
         }
         catch (NotFoundException e) { return NotFound(e.Message); }
         catch (ConflictException e) { return Conflict(e.Message); }
+    }
+    
+    [HttpPut("{idAppointment:int}")]
+    public async Task<IActionResult> UpdateAsync([FromRoute] int idAppointment, [FromBody] UpdateAppointmentRequestDto dto, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await appointmentService.UpdateAsync(idAppointment, dto, cancellationToken);
+            return NoContent();
+        }
+        catch (NotFoundException e) { return NotFound(e.Message); }
+        catch (ConflictException e) { return Conflict(e.Message); }
+        catch (BadRequestException e) { return BadRequest(e.Message); }
     }
 }

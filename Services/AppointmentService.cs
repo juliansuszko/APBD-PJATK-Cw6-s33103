@@ -74,7 +74,7 @@ public class AppointmentService(IConfiguration configuration) : IAppointmentServ
         return result;
     }
 
-    public async Task<AppointmentDetailsDto?> GetByIdAsync(int id, CancellationToken cancellationToken = default)
+    public async Task<AppointmentDetailsDto> GetByIdAsync(int id, CancellationToken cancellationToken = default)
     {
         AppointmentDetailsDto? result = null;
 
@@ -141,8 +141,6 @@ public class AppointmentService(IConfiguration configuration) : IAppointmentServ
         await connection.OpenAsync(cancellationToken);
         await using var command = new SqlCommand();
         
-        string pName, pEmail, pPhone, dName, dLicense;
-        
         command.Connection = connection;
 
         command.CommandText = "SELECT 1 FROM dbo.Patients WHERE IdPatient = @IdPatient AND IsActive = 1";
@@ -205,8 +203,72 @@ public class AppointmentService(IConfiguration configuration) : IAppointmentServ
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
     
-    public Task UpdateAsync(int id, UpdateAppointmentRequestDto dto, CancellationToken cancellationToken = default)
+    public async Task UpdateAsync(int id, UpdateAppointmentRequestDto dto, CancellationToken cancellationToken = default)
     {
-        throw new NotImplementedException();
+        var validStatuses = new[] { "Scheduled", "Completed", "Cancelled" };
+        if (!validStatuses.Contains(dto.Status))
+            throw new BadRequestException("Status must be one of: Scheduled, Completed, Cancelled.");
+
+        await using var connection = new SqlConnection(configuration.GetConnectionString("DefaultConnection"));
+        await connection.OpenAsync(cancellationToken);
+        await using var command = new SqlCommand { Connection = connection };
+
+        command.CommandText = "SELECT Status, AppointmentDate FROM dbo.Appointments WHERE IdAppointment = @Id";
+        command.Parameters.AddWithValue("@Id", id);
+
+        string oldStatus;
+        DateTime oldDate;
+
+        await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
+        {
+            if (!await reader.ReadAsync(cancellationToken))
+                throw new NotFoundException($"Appointment with ID {id} not found.");
+            
+            oldStatus = reader.GetString(0);
+            oldDate = reader.GetDateTime(1);
+        }
+        command.Parameters.Clear();
+
+        if (oldStatus == "Completed" && dto.AppointmentDate != oldDate)
+            throw new ConflictException("Cannot change the date of a completed appointment.");
+
+        command.CommandText = "SELECT 1 FROM dbo.Patients WHERE IdPatient = @IdP AND IsActive = 1";
+        command.Parameters.AddWithValue("@IdP", dto.IdPatient);
+        if (await command.ExecuteScalarAsync(cancellationToken) is null)
+            throw new NotFoundException("Patient not found or inactive.");
+        command.Parameters.Clear();
+
+        command.CommandText = "SELECT 1 FROM dbo.Doctors WHERE IdDoctor = @IdD AND IsActive = 1";
+        command.Parameters.AddWithValue("@IdD", dto.IdDoctor);
+        if (await command.ExecuteScalarAsync(cancellationToken) is null)
+            throw new NotFoundException("Doctor not found or inactive.");
+        command.Parameters.Clear();
+
+        if (dto.AppointmentDate != oldDate)
+        {
+            command.CommandText = "SELECT 1 FROM dbo.Appointments WHERE IdDoctor = @IdD AND AppointmentDate = @Date AND IdAppointment != @Id";
+            command.Parameters.AddWithValue("@IdD", dto.IdDoctor);
+            command.Parameters.AddWithValue("@Date", dto.AppointmentDate);
+            command.Parameters.AddWithValue("@Id", id);
+            if (await command.ExecuteScalarAsync(cancellationToken) is not null)
+                throw new ConflictException("Doctor already has an appointment at this time.");
+            command.Parameters.Clear();
+        }
+
+        command.CommandText = @"
+            UPDATE dbo.Appointments SET 
+                IdPatient = @IdP, IdDoctor = @IdD, AppointmentDate = @Date, 
+                Status = @Status, Reason = @Reason, InternalNotes = @Notes
+            WHERE IdAppointment = @Id";
+        
+        command.Parameters.AddWithValue("@IdP", dto.IdPatient);
+        command.Parameters.AddWithValue("@IdD", dto.IdDoctor);
+        command.Parameters.AddWithValue("@Date", dto.AppointmentDate);
+        command.Parameters.AddWithValue("@Status", dto.Status);
+        command.Parameters.AddWithValue("@Reason", dto.Reason);
+        command.Parameters.AddWithValue("@Notes", dto.InternalNotes);
+        command.Parameters.AddWithValue("@Id", id);
+
+        await command.ExecuteNonQueryAsync(cancellationToken);
     }
 }
