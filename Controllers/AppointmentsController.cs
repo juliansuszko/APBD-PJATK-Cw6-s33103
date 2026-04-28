@@ -16,6 +16,19 @@ public class AppointmentsController(IAppointmentService appointmentService) : Co
         return Ok(await appointmentService.GetAllAsync(status, patientLastName, cancellationToken));
 
     }
+
+    [HttpGet("{id}")]
+    public async Task<IActionResult> GetAsync(int id, CancellationToken cancellationToken)
+    {
+        var appointment = await appointmentService.GetByIdAsync(id, cancellationToken);
+
+        if (appointment is null)
+        {
+            return NotFound($"Appointment with id {id} not found");
+        }
+        
+        return Ok(appointment);
+    }
     
     
 }

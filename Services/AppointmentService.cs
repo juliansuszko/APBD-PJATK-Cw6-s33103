@@ -73,9 +73,57 @@ public class AppointmentService(IConfiguration configuration) : IAppointmentServ
         return result;
     }
 
-    public Task<AppointmentDetailsDto?> GetByIdAsync(int id, CancellationToken cancellationToken = default)
+    public async Task<AppointmentDetailsDto?> GetByIdAsync(int id, CancellationToken cancellationToken = default)
     {
-        throw new NotImplementedException();
+        AppointmentDetailsDto? result = null;
+
+        const string sqlCommand = """
+                                  SELECT
+                                      a.IdAppointment,
+                                      a.AppointmentDate,
+                                      a.Status,
+                                      a.Reason,
+                                      a.InternalNotes,
+                                      p.FirstName + N' ' + p.LastName AS PatientFullName,
+                                      p.Email AS PatientEmail,
+                                      p.PhoneNumber AS PatientPhone,
+                                      d.FirstName + N' ' + d.LastName AS DoctorFullName,
+                                      d.LicenseNumber AS DoctorLicenseNumber
+                                  FROM dbo.Appointments a
+                                  JOIN dbo.Patients p ON p.IdPatient = a.IdPatient
+                                  JOIN dbo.Doctors d ON d.IdDoctor = a.IdDoctor
+                                  WHERE a.IdAppointment = @IdAppointment;
+                                  """;
+        
+        await using var connection = new SqlConnection(configuration.GetConnectionString("DefaultConnection"));
+        await using var command = new SqlCommand(sqlCommand, connection);
+        
+        command.Parameters.Add(new SqlParameter("@IdAppointment", id));
+        
+        await connection.OpenAsync(cancellationToken);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+
+        if (await reader.ReadAsync(cancellationToken))
+        {
+            return new AppointmentDetailsDto
+            {
+                IdAppointment = reader.GetInt32(reader.GetOrdinal("IdAppointment")),
+                AppointmentDate = reader.GetDateTime(reader.GetOrdinal("AppointmentDate")),
+                Status = reader.GetString(reader.GetOrdinal("Status")),
+            
+                Reason = await reader.IsDBNullAsync(reader.GetOrdinal("Reason"), cancellationToken) ? string.Empty : reader.GetString(reader.GetOrdinal("Reason")),
+                InternalNotes = await reader.IsDBNullAsync(reader.GetOrdinal("InternalNotes"), cancellationToken) ? string.Empty : reader.GetString(reader.GetOrdinal("InternalNotes")),
+            
+                PatientFullName = reader.GetString(reader.GetOrdinal("PatientFullName")),
+                PatientEmail = await reader.IsDBNullAsync(reader.GetOrdinal("PatientEmail"), cancellationToken) ? string.Empty : reader.GetString(reader.GetOrdinal("PatientEmail")),
+                PatientPhone = await reader.IsDBNullAsync(reader.GetOrdinal("PatientPhone"), cancellationToken) ? string.Empty : reader.GetString(reader.GetOrdinal("PatientPhone")),
+            
+                DoctorFullName = reader.GetString(reader.GetOrdinal("DoctorFullName")),
+                DoctorLicenseNumber = reader.GetString(reader.GetOrdinal("DoctorLicenseNumber"))
+            };
+        }
+
+        return null;
     }
 
     public Task<CreateAppointmentRequestDto> CreateAsync(CreateAppointmentRequestDto appointment, CancellationToken cancellationToken = default)
