@@ -1,3 +1,5 @@
+using APBD_PJATK_Cw6_s33103.DTOs;
+using APBD_PJATK_Cw6_s33103.Exceptions;
 using APBD_PJATK_Cw6_s33103.Services;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
@@ -29,6 +31,23 @@ public class AppointmentsController(IAppointmentService appointmentService) : Co
         
         return Ok(appointment);
     }
-    
-    
+
+    [HttpPost]
+    public async Task<IActionResult> CreateAsync([FromBody] CreateAppointmentRequestDto appointment,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var newAppointment = await appointmentService.CreateAsync(appointment, cancellationToken);
+            
+            return Created($"/api/appointments/{newAppointment.IdAppointment}", newAppointment);
+        } catch (NotFoundException e)
+        {
+            return NotFound(e.Message);
+        }
+        catch (ConflictException e)
+        {
+            return Conflict(e.Message);
+        }
+    }
 }

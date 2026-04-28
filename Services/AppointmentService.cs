@@ -1,5 +1,6 @@
 using System.Text;
 using APBD_PJATK_Cw6_s33103.DTOs;
+using APBD_PJATK_Cw6_s33103.Exceptions;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.Data.SqlClient;
 
@@ -126,9 +127,59 @@ public class AppointmentService(IConfiguration configuration) : IAppointmentServ
         return null;
     }
 
-    public Task<CreateAppointmentRequestDto> CreateAsync(CreateAppointmentRequestDto appointment, CancellationToken cancellationToken = default)
+    public async Task<AppointmentDetailsDto> CreateAsync(CreateAppointmentRequestDto appointment, CancellationToken cancellationToken = default)
     {
-        throw new NotImplementedException();
+        if (appointment.AppointmentDate < DateTime.Now)
+        {
+            throw new BadRequestException("Appointment Date must be in the future");
+        }
+        
+        if (string.IsNullOrWhiteSpace(appointment.Reason) || appointment.Reason.Length > 250)
+            throw new BadRequestException("The visit description cannot be empty and must be a maximum of 250 characters.");
+        
+        await using var connection = new SqlConnection(configuration.GetConnectionString("DefaultConnection"));
+        await connection.OpenAsync(cancellationToken);
+        await using var command = new SqlCommand();
+        
+        string pName, pEmail, pPhone, dName, dLicense;
+        
+        command.Connection = connection;
+
+        command.CommandText = "SELECT 1 FROM dbo.Patients WHERE IdPatient = @IdPatient AND IsActive = 1";
+        command.Parameters.AddWithValue("@IdPatient", appointment.IdPatient);
+        if (await command.ExecuteScalarAsync(cancellationToken) is null)
+            throw new NotFoundException($"Patient with ID {appointment.IdPatient} not found.");
+        command.Parameters.Clear();
+        
+        command.CommandText = "SELECT 1 FROM dbo.Doctors WHERE IdDoctor = @IdDoctor AND IsActive = 1";
+        command.Parameters.AddWithValue("@IdDoctor", appointment.IdDoctor);
+        if (await command.ExecuteScalarAsync(cancellationToken) is null)
+            throw new NotFoundException($"Doctor with ID {appointment.IdDoctor} not found.");
+        command.Parameters.Clear();
+        
+        command.CommandText = "SELECT 1 FROM dbo.Appointments WHERE IdDoctor = @IdDoctor AND AppointmentDate = @AppointmentDate";
+        command.Parameters.AddWithValue("@IdDoctor", appointment.IdDoctor);
+        command.Parameters.AddWithValue("@AppointmentDate", appointment.AppointmentDate);
+        if (await command.ExecuteScalarAsync(cancellationToken) is not null)
+            throw new ConflictException("The doctor already has an appointment scheduled for that date.");
+        command.Parameters.Clear();
+        
+        command.CommandText = """
+                                      INSERT INTO dbo.Appointments (IdPatient, IdDoctor, AppointmentDate, Status, Reason, InternalNotes)
+                                      OUTPUT INSERTED.IdAppointment
+                                      VALUES (@IdPatient, @IdDoctor, @AppointmentDate, 'Scheduled', @Reason, '');
+                              """;
+        
+        command.Parameters.AddWithValue("@IdPatient", appointment.IdPatient);
+        command.Parameters.AddWithValue("@IdDoctor", appointment.IdDoctor);
+        command.Parameters.AddWithValue("@AppointmentDate", appointment.AppointmentDate);
+        command.Parameters.AddWithValue("@Reason", appointment.Reason);
+        
+        var newId = (int)await command.ExecuteScalarAsync(cancellationToken);
+
+        var result = await GetByIdAsync(newId, cancellationToken);
+
+        return result;
     }
 
     public Task UpdateAsync(int id, CancellationToken cancellationToken = default)
@@ -136,7 +187,7 @@ public class AppointmentService(IConfiguration configuration) : IAppointmentServ
         throw new NotImplementedException();
     }
 
-    public Task DeleteAsync(int id, CancellationToken cancellationToken = default)
+    public Task DeleteAsync(int id, UpdateAppointmentRequestDto dto, CancellationToken cancellationToken = default)
     {
         throw new NotImplementedException();
     }
