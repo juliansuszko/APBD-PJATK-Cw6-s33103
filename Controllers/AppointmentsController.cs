@@ -39,9 +39,14 @@ public class AppointmentsController(IAppointmentService appointmentService) : Co
         try
         {
             var newAppointment = await appointmentService.CreateAsync(appointment, cancellationToken);
-            
+
             return Created($"/api/appointments/{newAppointment.IdAppointment}", newAppointment);
-        } catch (NotFoundException e)
+        }
+        catch (BadRequestException e)
+        {
+            return BadRequest(e.Message);
+        } 
+        catch (NotFoundException e)
         {
             return NotFound(e.Message);
         }
