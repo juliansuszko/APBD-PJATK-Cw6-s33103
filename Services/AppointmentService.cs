@@ -182,12 +182,30 @@ public class AppointmentService(IConfiguration configuration) : IAppointmentServ
         return result;
     }
 
-    public Task UpdateAsync(int id, CancellationToken cancellationToken = default)
+    public async Task DeleteAsync(int id, CancellationToken cancellationToken = default)
     {
-        throw new NotImplementedException();
-    }
+        await using var connection = new SqlConnection(configuration.GetConnectionString("DefaultConnection"));
+        await connection.OpenAsync(cancellationToken);
+        await using var command = new SqlCommand { Connection = connection };
 
-    public Task DeleteAsync(int id, UpdateAppointmentRequestDto dto, CancellationToken cancellationToken = default)
+        command.CommandText = "SELECT Status FROM dbo.Appointments WHERE IdAppointment = @Id";
+        command.Parameters.AddWithValue("@Id", id);
+
+        var status = await command.ExecuteScalarAsync(cancellationToken);
+        if (status is null)
+            throw new NotFoundException($"Appointment with ID {id} not found.");
+
+        if (status.ToString() == "Completed")
+            throw new ConflictException("Cannot delete a completed appointment.");
+
+        command.Parameters.Clear();
+
+        command.CommandText = "DELETE FROM dbo.Appointments WHERE IdAppointment = @Id";
+        command.Parameters.AddWithValue("@Id", id);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+    
+    public Task UpdateAsync(int id, UpdateAppointmentRequestDto dto, CancellationToken cancellationToken = default)
     {
         throw new NotImplementedException();
     }
